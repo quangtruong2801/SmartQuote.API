@@ -12,10 +12,12 @@ namespace SmartQuote.API.Controllers
     public class ProductTemplatesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly IWebHostEnvironment _environment;
 
-        public ProductTemplatesController(AppDbContext context)
+        public ProductTemplatesController(AppDbContext context, IWebHostEnvironment environment)
         {
             _context = context;
+            _environment = environment;
         }
 
         // GET: api/ProductTemplates
@@ -81,6 +83,23 @@ namespace SmartQuote.API.Controllers
         {
             var productTemplate = await _context.ProductTemplates.FindAsync(id);
             if (productTemplate == null) return NotFound();
+
+            if (!string.IsNullOrEmpty(productTemplate.ImageUrl))
+            {
+                try
+                {
+                    var fileName = Path.GetFileName(productTemplate.ImageUrl);
+
+                    var filePath = Path.Combine(_environment.WebRootPath, "images", fileName);
+                    if (System.IO.File.Exists(filePath))
+                    {
+                        System.IO.File.Delete(filePath);
+                    }
+                }
+                catch (Exception)
+                {
+                }
+            }
 
             _context.ProductTemplates.Remove(productTemplate);
             await _context.SaveChangesAsync();

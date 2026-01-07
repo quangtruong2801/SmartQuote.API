@@ -66,6 +66,8 @@ namespace SmartQuote.API.Controllers
                 CustomerEmail = quotation.Customer?.Email ?? "",
                 Status = quotation.Status.ToString(),
                 TotalAmount = quotation.TotalAmount,
+                DiscountPercent = quotation.DiscountPercent,
+                TaxPercent = quotation.TaxPercent,
                 CreatedAt = quotation.CreatedAt,
                 Items = quotation.Items.Select(i => new QuotationItemResponseDto
                 {
@@ -118,10 +120,13 @@ namespace SmartQuote.API.Controllers
                 CustomerId = request.CustomerId,
                 Status = QuotationStatus.Draft,
                 CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                DiscountPercent = request.DiscountPercent,
+                TaxPercent = request.TaxPercent,
                 Items = new List<QuotationItem>()
             };
 
-            decimal grandTotal = 0;
+            decimal subTotal = 0;
 
             foreach (var itemDto in request.Items)
             {
@@ -130,6 +135,7 @@ namespace SmartQuote.API.Controllers
                     return BadRequest($"Vật tư ID {itemDto.MaterialId} không tồn tại");
 
                 var itemTotal = itemDto.UnitPriceSnapshot * itemDto.Quantity;
+                subTotal += itemTotal;
 
                 quotation.Items.Add(new QuotationItem
                 {
@@ -142,11 +148,17 @@ namespace SmartQuote.API.Controllers
                     Quantity = itemDto.Quantity,
                     TotalPrice = itemTotal
                 });
-
-                grandTotal += itemTotal;
             }
 
-            quotation.TotalAmount = grandTotal;
+            // Tính tiền giảm giá
+            decimal discountAmount = subTotal * (decimal)(request.DiscountPercent / 100.0);
+            decimal afterDiscount = subTotal - discountAmount;
+
+            // Tính tiền thuế (Dựa trên số đã chiết khấu)
+            decimal taxAmount = afterDiscount * (decimal)(request.TaxPercent / 100.0);
+
+            // Tổng cuối cùng
+            quotation.TotalAmount = afterDiscount + taxAmount;
 
             _context.Quotations.Add(quotation);
             await _context.SaveChangesAsync();
