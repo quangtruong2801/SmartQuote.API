@@ -1,51 +1,65 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using SmartQuote.API.DTOs.Upload;
 
 namespace SmartQuote.API.Controllers
 {
-    [Route("api/[controller]")]
     [ApiController]
+    [Route("api/[controller]")]
+    [Authorize]
     public class UploadController : ControllerBase
     {
-        private readonly IWebHostEnvironment _environment;
+        private readonly Cloudinary _cloudinary;
 
-        public UploadController(IWebHostEnvironment environment)
+        private const long MAX_FILE_SIZE = 5 * 1024 * 1024;
+        private static readonly string[] ALLOWED_EXTENSIONS =
+            { ".jpg", ".jpeg", ".png", ".webp" };
+
+        public UploadController(Cloudinary cloudinary)
         {
-            _environment = environment;
+            _cloudinary = cloudinary;
         }
 
-        [HttpPost]
-        public async Task<IActionResult> UploadImage(IFormFile file)
+        // POST: api/Upload/image
+        [HttpPost("image")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadImage([FromForm] ImageUploadDto dto)
         {
+            var file = dto.File;
+
             if (file == null || file.Length == 0)
-                return BadRequest("Vui lòng chọn file ảnh!");
+                return BadRequest("Vui lòng chọn file ảnh.");
 
-            // 1. Tạo tên file độc nhất (tránh bị trùng tên)
-            // Ví dụ: tu-bep.jpg -> tu-bep-GUID123.jpg
-            var fileName = Path.GetFileNameWithoutExtension(file.FileName)
-                           + "_"
-                           + Guid.NewGuid().ToString()
-                           + Path.GetExtension(file.FileName);
+            if (file.Length > MAX_FILE_SIZE)
+                return BadRequest("Dung lượng ảnh tối đa 5MB.");
 
-            // 2. Xác định đường dẫn lưu (vào thư mục wwwroot/images)
-            var uploadFolder = Path.Combine(_environment.WebRootPath, "images");
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!ALLOWED_EXTENSIONS.Contains(ext))
+                return BadRequest("Chỉ hỗ trợ JPG, JPEG, PNG, WEBP.");
 
-            // Nếu thư mục chưa có thì tạo mới
-            if (!Directory.Exists(uploadFolder)) Directory.CreateDirectory(uploadFolder);
+            using var stream = file.OpenReadStream();
 
-            var filePath = Path.Combine(uploadFolder, fileName);
-
-            // 3. Lưu file vào ổ cứng
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            var uploadParams = new ImageUploadParams
             {
-                await file.CopyToAsync(stream);
-            }
+                File = new FileDescription(file.FileName, stream),
+                Folder = "smartquote/product-templates",
+                UseFilename = true,
+                UniqueFilename = true,
+                Overwrite = false
+            };
 
-            // 4. Trả về đường dẫn URL để Frontend hiển thị
-            // Ví dụ: https://localhost:7207/images/ten-file.jpg
-            var baseUrl = $"{Request.Scheme}://{Request.Host}";
-            var fileUrl = $"{baseUrl}/images/{fileName}";
+            var result = await _cloudinary.UploadAsync(uploadParams);
 
-            return Ok(new { url = fileUrl });
+            if (result.Error != null)
+                return StatusCode(500, result.Error.Message);
+
+            return Ok(new
+            {
+                url = result.SecureUrl.ToString(),
+                publicId = result.PublicId
+            });
         }
     }
 }

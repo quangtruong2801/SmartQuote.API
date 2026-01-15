@@ -1,4 +1,6 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SmartQuote.API.Data;
@@ -12,19 +14,27 @@ namespace SmartQuote.API.Controllers
     public class ProductTemplatesController : ControllerBase
     {
         private readonly AppDbContext _context;
-        private readonly IWebHostEnvironment _environment;
+        private readonly Cloudinary _cloudinary;
 
-        public ProductTemplatesController(AppDbContext context, IWebHostEnvironment environment)
+        public ProductTemplatesController(
+            AppDbContext context,
+            IConfiguration config)
         {
             _context = context;
-            _environment = environment;
+
+            var account = new Account(
+                config["Cloudinary:CloudName"],
+                config["Cloudinary:ApiKey"],
+                config["Cloudinary:ApiSecret"]
+            );
+
+            _cloudinary = new Cloudinary(account);
         }
 
         // GET: api/ProductTemplates
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ProductTemplate>>> GetProductTemplates()
         {
-            // Include(p => p.DefaultMaterial): Lấy luôn thông tin tên vật tư đi kèm
             return await _context.ProductTemplates
                 .Include(p => p.DefaultMaterial)
                 .ToListAsync();
@@ -46,34 +56,52 @@ namespace SmartQuote.API.Controllers
         [HttpPost]
         public async Task<ActionResult<ProductTemplate>> CreateProductTemplate(ProductTemplate productTemplate)
         {
-            // Kiểm tra xem MaterialId có tồn tại không
-            var materialExists = await _context.Materials.AnyAsync(m => m.Id == productTemplate.DefaultMaterialId);
-            if (!materialExists) return BadRequest("Vật tư mặc định không tồn tại!");
+            var materialExists = await _context.Materials
+                .AnyAsync(m => m.Id == productTemplate.DefaultMaterialId);
+
+            if (!materialExists)
+                return BadRequest("Vật tư mặc định không tồn tại.");
 
             _context.ProductTemplates.Add(productTemplate);
             await _context.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetProductTemplate), new { id = productTemplate.Id }, productTemplate);
+            return CreatedAtAction(
+                nameof(GetProductTemplate),
+                new { id = productTemplate.Id },
+                productTemplate
+            );
         }
 
         // PUT: api/ProductTemplates/5
         [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateProductTemplate(int id, ProductTemplate productTemplate)
+        public async Task<IActionResult> UpdateProductTemplate(int id, ProductTemplate updated)
         {
-            if (id != productTemplate.Id) return BadRequest();
+            if (id != updated.Id) return BadRequest();
 
-            _context.Entry(productTemplate).State = EntityState.Modified;
+            var existing = await _context.ProductTemplates.FindAsync(id);
+            if (existing == null) return NotFound();
 
-            try
+            // 🔥 Nếu đổi ảnh → xóa ảnh cũ
+            if (!string.IsNullOrEmpty(existing.ImagePublicId) &&
+                existing.ImagePublicId != updated.ImagePublicId)
             {
-                await _context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!_context.ProductTemplates.Any(e => e.Id == id)) return NotFound();
-                throw;
+                try
+                {
+                    await _cloudinary.DestroyAsync(
+                        new DeletionParams(existing.ImagePublicId));
+                }
+                catch
+                {
+                    // log nếu cần, không throw
+                }
             }
 
+            existing.Name = updated.Name;
+            existing.ImageUrl = updated.ImageUrl;
+            existing.ImagePublicId = updated.ImagePublicId;
+            existing.DefaultMaterialId = updated.DefaultMaterialId;
+
+            await _context.SaveChangesAsync();
             return NoContent();
         }
 
@@ -84,20 +112,17 @@ namespace SmartQuote.API.Controllers
             var productTemplate = await _context.ProductTemplates.FindAsync(id);
             if (productTemplate == null) return NotFound();
 
-            if (!string.IsNullOrEmpty(productTemplate.ImageUrl))
+            // 🔥 Xóa ảnh Cloudinary
+            if (!string.IsNullOrEmpty(productTemplate.ImagePublicId))
             {
                 try
                 {
-                    var fileName = Path.GetFileName(productTemplate.ImageUrl);
-
-                    var filePath = Path.Combine(_environment.WebRootPath, "images", fileName);
-                    if (System.IO.File.Exists(filePath))
-                    {
-                        System.IO.File.Delete(filePath);
-                    }
+                    await _cloudinary.DestroyAsync(
+                        new DeletionParams(productTemplate.ImagePublicId));
                 }
-                catch (Exception)
+                catch
                 {
+                    // log nếu cần
                 }
             }
 

@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using CloudinaryDotNet;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -73,6 +74,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 // 4. Controller
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+builder.Services.AddSingleton(new Cloudinary(
+    new Account(
+        builder.Configuration["Cloudinary:CloudName"],
+        builder.Configuration["Cloudinary:ApiKey"],
+        builder.Configuration["Cloudinary:ApiSecret"]
+    )
+));
+
 
 // 5. Database
 builder.Services.AddDbContext<AppDbContext>(options =>
