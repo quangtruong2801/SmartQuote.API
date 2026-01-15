@@ -12,6 +12,8 @@ namespace SmartQuote.API.Entities
 
         public string? ImageUrl { get; set; } // Link ảnh minh họa
 
+        public string? ImagePublicId { get; set; }
+
         // Kích thước mặc định (để hiện lên form cho khách dễ hình dung)
         public double DefaultWidth { get; set; }
         public double DefaultHeight { get; set; }
